@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Interactive OCR Video</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #111;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+    #container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    #video {
+      max-width: 100%;
+      max-height: 100%;
+      display: block;
+    }
+    #overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      pointer-events: none;
+      z-index: 10;
+    }
+    .clickable {
+      position: absolute;
+      border: 2px solid red;
+      background-color: rgba(255, 0, 0, 0.2);
+      pointer-events: auto;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+<div id="container">
+  <video id="video" controls>
+    <source src="Vid_source/VD_0001.mp4" type="video/mp4">
+    Your browser does not support the video tag.
+  </video>
+  <div id="overlay"></div>
+</div>
+
+<script>
+  const video = document.getElementById('video');
+  const overlay = document.getElementById('overlay');
+  const container = document.getElementById('container');
+  let ocrData = null;
+  let fps = 30;
+
+  // Load OCR JSON
+  fetch('ocr_data.json')
+    .then(res => res.json())
+    .then(data => {
+      ocrData = data.data;
+      //fps = data.fps || 30;
+      fps = 1;
+    });
+
+  function getCurrentFrame() {
+    // console.log(`Current frame: ${video.currentTime.toFixed(1)}`);
+    // console.log(`Current time: ${video.currentTime}`);
+    // console.log(`FPS: ${fps}`);
+    // return Math.floor(video.currentTime * fps).toString();
+    return Math.floor(video.currentTime).toFixed(1).toString();
+  }
+
+  function updateOverlaySize() {
+    const rect = video.getBoundingClientRect();
+
+    overlay.style.left = `${video.offsetLeft}px`;
+    overlay.style.top = `${video.offsetTop}px`;
+    overlay.style.width = `${video.clientWidth}px`;
+    overlay.style.height = `${video.clientHeight}px`;
+  }
+
+  function showBoxes(frameId) {
+    overlay.innerHTML = "";
+    const frameData = ocrData?.[frameId];
+    if (!frameData) return;
+
+    const videoWidth = video.clientWidth;
+    const videoHeight = video.clientHeight;
+
+    updateOverlaySize();
+
+    frameData.forEach(item => {
+      const [xN, yN, wN, hN] = item.bbox;
+      const x = xN * videoWidth;
+      const y = yN * videoHeight;
+      const w = wN * videoWidth;
+      const h = hN * videoHeight;
+
+      const box = document.createElement('div');
+      box.className = 'clickable';
+      box.style.left = `${x}px`;
+      box.style.top = `${y}px`;
+      box.style.width = `${w}px`;
+      box.style.height = `${h}px`;
+      box.title = item.text;
+      box.onclick = () => alert(`You clicked: ${item.text}`);
+      overlay.appendChild(box);
+    });
+  }
+
+  video.addEventListener('pause', () => {
+    showBoxes(getCurrentFrame());
+  });
+
+  video.addEventListener('play', () => {
+    overlay.innerHTML = '';
+  });
+
+  window.addEventListener('resize', () => {
+    if (video.paused) showBoxes(getCurrentFrame());
+  });
+
+  // Handle fullscreen changes
+  ['fullscreenchange', 'webkitfullscreenchange', 'mozfullscreenchange'].forEach(evt => {
+    document.addEventListener(evt, () => {
+      if (video.paused) {
+        setTimeout(() => showBoxes(getCurrentFrame()), 100); // delay helps with fullscreen timing
+      }
+    });
+  });
+</script>
+
+</body>
+</html>
