@@ -45,7 +45,7 @@
 
 <div id="container">
   <video id="video" controls>
-    <source src="Vid_source/VD_0003.mp4" type="video/mp4">
+    <source src="Vid_source/VD_0001.mp4" type="video/mp4">
     Your browser does not support the video tag.
   </video>
   <div id="overlay"></div>
@@ -63,16 +63,22 @@
     .then(res => res.json())
     .then(data => {
       ocrData = data.data;
-      //fps = data.fps || 30;
-      fps = 1;
+      fps = data.fps || 30;
     });
 
   function getCurrentFrame() {
-    // console.log(`Current frame: ${video.currentTime}`);
-    // console.log(`Current time: ${video.currentTime}`);
-    // console.log(`FPS: ${fps}`);
-    // return Math.floor(video.currentTime * fps).toString();
-    return Math.floor(video.currentTime).toString();
+    let second = Math.floor(video.currentTime)
+    let index = second.toString();
+    while (!(index in ocrData)){
+      second = second - 1;
+      if (second < 0){
+        break;
+      }
+
+      index = second.toString();
+    }
+
+    return index;
   }
 
   function updateOverlaySize() {
