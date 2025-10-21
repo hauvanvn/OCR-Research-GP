@@ -1,8 +1,8 @@
 import requests
 
-URL = "http://127.0.0.1:5000/api/ocr"
+URL = "https://8212b3b9b28a.ngrok-free.app/api/ocr"
 
-PDF_PATH = "sample.pdf"
+PDF_PATH = "sample.png"
 
 # Send POST request
 with open(PDF_PATH, "rb") as f:

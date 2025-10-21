@@ -3,7 +3,7 @@ import cv2
 import json
 import numpy as np
 import regex
-from pdf2image import convert_from_path
+import os
 
 import string
 import nltk
@@ -65,97 +65,104 @@ def merge_bounding_boxes(boxes):
 
     return [min_x, min_y, max_x - min_x, max_y - min_y]
 
-def ocr_pdf(pdf_path):
+def ocr_image(image_path):
     reader = easyocr.Reader(['vi']) # this needs to run only once to load the model into memory
 
-    pages = convert_from_path(pdf_path, dpi=300)
-    total_pages = len(pages)
+    # Check file exists
+    if not os.path.exists(image_path):
+        return {"error": f"File not found: {image_path}"}
 
-    results_per_page = {}
-    CP = 10
+    # Try reading with cv2
+    image = cv2.imread(image_path)
 
-    for cur_page, page in enumerate(pages, start=1):
-        if (cur_page / total_pages) * 100 >= CP:
-            print(f"OCR Progress: {CP}%")
-            CP += 10
+    # If cv2 fails, try reading via numpy buffer
+    if image is None or image.size == 0:
+        print("⚠️ cv2.imread failed, retrying with np.fromfile")
+        try:
+            data = np.fromfile(image_path, dtype=np.uint8)
+            image = cv2.imdecode(data, cv2.IMREAD_COLOR)
+        except Exception as e:
+            return {"error": f"Failed to decode image: {str(e)}"}
 
-        image = np.array(page)
-        h, w, _ = image.shape
-        boxes = reader.readtext(image, paragraph=False, width_ths=0.01)
+    # Still None?
+    if image is None or image.size == 0:
+        return {"error": "Unable to read image file — possibly corrupted or unsupported format."}
 
-        # Step 1: Collect per-word boxes and text
-        results = []
-        for bbox, text, conf in boxes:
-            if conf > 0.7 and text.strip():
-                x_coords = [point[0] for point in bbox]
-                y_coords = [point[1] for point in bbox]
+    h, w, _ = image.shape
+    boxes = reader.readtext(image, paragraph=False, width_ths=0.01)
 
-                x = min(x_coords)
-                y = min(y_coords)
-                bw = max(x_coords) - x
-                bh = max(y_coords) - y
+    # Step 1: Collect per-word boxes and text
+    results = []
+    for bbox, text, conf in boxes:
+        if conf > 0.7 and text.strip():
+            x_coords = [point[0] for point in bbox]
+            y_coords = [point[1] for point in bbox]
 
-                results.append({
-                    "text": text.strip(),
-                    "x": x,
-                    "avg_y": (y + max(y_coords)) // 2,
-                    "bbox": [x / w, y / h, bw / w, bh / h]
-                })
+            x = min(x_coords)
+            y = min(y_coords)
+            bw = max(x_coords) - x
+            bh = max(y_coords) - y
 
-        # Step 2: Srot and clear
-        lines = sort_words_into_lines(results, y_tolerance=15)
-        ordered_words = [w for line in lines for w in line]  # flatten
+            results.append({
+                "text": text.strip(),
+                "x": x,
+                "avg_y": (y + max(y_coords)) // 2,
+                "bbox": [x / w, y / h, bw / w, bh / h]
+            })
 
-        # Step 3: Build string and mapping of char positions
-        text_str = ""
-        mapping = []
-        offset = 0
-        for w in ordered_words:
-            cleaned = regex.sub(r'[^\p{L}\s]', '', w["text"])
-            cleaned = regex.sub(r'\s+', ' ', cleaned).strip()
+    # Step 2: Srot and clear
+    lines = sort_words_into_lines(results, y_tolerance=15)
+    ordered_words = [w for line in lines for w in line]  # flatten
 
-            if cleaned:
-                mapping.append({
-                    "bbox": w["bbox"],
-                    "start": offset,
-                    "end": offset + len(cleaned)
-                })
-                text_str += cleaned + " "
-                offset += len(cleaned) + 1
+    # Step 3: Build string and mapping of char positions
+    text_str = ""
+    mapping = []
+    offset = 0
+    for w in ordered_words:
+        cleaned = regex.sub(r'[^\p{L}\s]', '', w["text"])
+        cleaned = regex.sub(r'\s+', ' ', cleaned).strip()
 
+        if cleaned:
+            mapping.append({
+                "bbox": w["bbox"],
+                "start": offset,
+                "end": offset + len(cleaned)
+            })
+            text_str += cleaned + " "
+            offset += len(cleaned) + 1
+
+    # if cur_frame >= 840 and cur_frame <=880:
+    #     print("###############################################")
+    #     print(text_str)
+
+    # Step 4: Run spaCy
+    doc = nlp(text_str)
+    tokens_without_punct = [token for token in doc if not token.is_punct]
+
+    # Step 5: Merge by spaCy sentence
+    merged_data = []
+
+    for token in tokens_without_punct:
         # if cur_frame >= 840 and cur_frame <=880:
-        #     print("###############################################")
-        #     print(text_str)
+        #   print(token.text.strip())
+        # start position of the token in text_str
+        token_start = token.idx
+        token_end = token.idx + len(token.text)
 
-        # Step 4: Run spaCy
-        doc = nlp(text_str)
-        tokens_without_punct = [token for token in doc if not token.is_punct]
+        token_boxes = [
+            m["bbox"] for m in mapping
+            if m["start"] >= token_start and m["end"] <= token_end
+        ]
 
-        # Step 5: Merge by spaCy sentence
-        merged_data = []
+        if token_boxes:
+            merged_bbox = merge_bounding_boxes(token_boxes)
+            merged_data.append({
+                "bbox": merged_bbox,
+                "text": token.text.strip()
+            })
 
-        for token in tokens_without_punct:
-            # if cur_frame >= 840 and cur_frame <=880:
-            #   print(token.text.strip())
-            # start position of the token in text_str
-            token_start = token.idx
-            token_end = token.idx + len(token.text)
-
-            token_boxes = [
-                m["bbox"] for m in mapping
-                if m["start"] >= token_start and m["end"] <= token_end
-            ]
-
-            if token_boxes:
-                merged_bbox = merge_bounding_boxes(token_boxes)
-                merged_data.append({
-                    "bbox": merged_bbox,
-                    "text": token.text.strip()
-                })
-
-        # Step 6: Save result for this frame
-        if merged_data:
-            results_per_page[str(cur_page)] = merged_data
-
-    # Step 7: Save result for this frame
-    return results_per_page
+    # Step 6: Save result for this frame
+    print(f"OCR: {image_path} done!")
+    if merged_data:
+        return merged_data
+    return None
