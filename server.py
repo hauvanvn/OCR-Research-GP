@@ -9,10 +9,12 @@ CORS(app)
 @app.route('/api/ocr', methods=['POST'])
 def ocr_endpoint():
     print("OCR: processing request!")
-    file = request.files['pdf']
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-        file.save(tmp.name)
-        result = ocr_image(tmp.name)
+
+    data = request.get_json()
+    url = data.get("url")
+    audio_arr = data.get("numbers", [])
+
+    result = ocr_image(url, audio_arr)
     return jsonify(result)
 
 if __name__ == '__main__':

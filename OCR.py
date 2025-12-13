@@ -4,11 +4,14 @@ import json
 import numpy as np
 import regex
 import os
+import urllib.request #Use for downloading files from URL
+from pdf2image import convert_from_path
+import shutil #Use to clear folder data
 
-import string
-import nltk
-import spacy
 import pandas as pd
+import string
+
+import nltk
 from nltk.corpus import gutenberg, stopwords, wordnet
 from nltk.tokenize import word_tokenize, sent_tokenize
 from nltk.stem import PorterStemmer
@@ -21,12 +24,33 @@ nltk.download('stopwords')
 nltk.download('omw-1.4')
 punctuations = set(string.punctuation)
 
+import spacy
 from spacy.lang.vi import Vietnamese
 
 nlp = Vietnamese()
 nlp.add_pipe('sentencizer')
 
 reader = easyocr.Reader(['vi']) # this needs to run only once to load the model into memory
+
+def get_imgs(url):
+    download_dir = "data"
+    img_dir = os.path.join(download_dir, "imgs")
+
+    os.makedirs(img_dir, exist_ok=True)
+
+    pdf_path = os.path.join(download_dir, "lesson.pdf")
+
+    urllib.request.urlretrieve(url, pdf_path)
+
+    images = convert_from_path(
+        pdf_path,
+        dpi=300,
+        output_folder=img_dir,
+        fmt="jpeg",
+        paths_only=True
+    )
+
+    return images
 
 def sort_words_into_lines(results, y_tolerance=15):
     """
@@ -65,104 +89,111 @@ def merge_bounding_boxes(boxes):
 
     return [min_x, min_y, max_x - min_x, max_y - min_y]
 
-def ocr_image(image_path):
+def ocr_image(image_path, audio_arr):
+    imgs_path = get_imgs(image_path)
+
     reader = easyocr.Reader(['vi']) # this needs to run only once to load the model into memory
 
     # Check file exists
     if not os.path.exists(image_path):
         return {"error": f"File not found: {image_path}"}
 
-    # Try reading with cv2
-    image = cv2.imread(image_path)
+    OCRjson = []
+    for image_path, renderTime in zip(imgs_path, audio_arr):
+        # Try reading with cv2
+        image = cv2.imread(image_path)
 
-    # If cv2 fails, try reading via numpy buffer
-    if image is None or image.size == 0:
-        print("⚠️ cv2.imread failed, retrying with np.fromfile")
-        try:
-            data = np.fromfile(image_path, dtype=np.uint8)
-            image = cv2.imdecode(data, cv2.IMREAD_COLOR)
-        except Exception as e:
-            return {"error": f"Failed to decode image: {str(e)}"}
+        # If cv2 fails, try reading via numpy buffer
+        if image is None or image.size == 0:
+            print("⚠️ cv2.imread failed, retrying with np.fromfile")
+            try:
+                data = np.fromfile(image_path, dtype=np.uint8)
+                image = cv2.imdecode(data, cv2.IMREAD_COLOR)
+            except Exception as e:
+                return {"error": f"Failed to decode image: {str(e)}"}
 
-    # Still None?
-    if image is None or image.size == 0:
-        return {"error": "Unable to read image file — possibly corrupted or unsupported format."}
+        # Still None?
+        if image is None or image.size == 0:
+            return {"error": "Unable to read image file — possibly corrupted or unsupported format."}
 
-    h, w, _ = image.shape
-    boxes = reader.readtext(image, paragraph=False, width_ths=0.01)
+        h, w, _ = image.shape
+        boxes = reader.readtext(image, paragraph=False, width_ths=0.01)
 
-    # Step 1: Collect per-word boxes and text
-    results = []
-    for bbox, text, conf in boxes:
-        if conf > 0.7 and text.strip():
-            x_coords = [point[0] for point in bbox]
-            y_coords = [point[1] for point in bbox]
+        # Step 1: Collect per-word boxes and text
+        results = []
+        for bbox, text, conf in boxes:
+            if conf > 0.7 and text.strip():
+                x_coords = [point[0] for point in bbox]
+                y_coords = [point[1] for point in bbox]
 
-            x = min(x_coords)
-            y = min(y_coords)
-            bw = max(x_coords) - x
-            bh = max(y_coords) - y
+                x = min(x_coords)
+                y = min(y_coords)
+                bw = max(x_coords) - x
+                bh = max(y_coords) - y
 
-            results.append({
-                "text": text.strip(),
-                "x": x,
-                "avg_y": (y + max(y_coords)) // 2,
-                "bbox": [x / w, y / h, bw / w, bh / h]
-            })
+                results.append({
+                    "text": text.strip(),
+                    "x": x,
+                    "avg_y": (y + max(y_coords)) // 2,
+                    "bbox": [x / w, y / h, bw / w, bh / h]
+                })
 
-    # Step 2: Srot and clear
-    lines = sort_words_into_lines(results, y_tolerance=15)
-    ordered_words = [w for line in lines for w in line]  # flatten
+        # Step 2: Srot and clear
+        lines = sort_words_into_lines(results, y_tolerance=15)
+        ordered_words = [w for line in lines for w in line]  # flatten
 
-    # Step 3: Build string and mapping of char positions
-    text_str = ""
-    mapping = []
-    offset = 0
-    for w in ordered_words:
-        cleaned = regex.sub(r'[^\p{L}\s]', '', w["text"])
-        cleaned = regex.sub(r'\s+', ' ', cleaned).strip()
+        # Step 3: Build string and mapping of char positions
+        text_str = ""
+        mapping = []
+        offset = 0
+        for w in ordered_words:
+            cleaned = regex.sub(r'[^\p{L}\s]', '', w["text"])
+            cleaned = regex.sub(r'\s+', ' ', cleaned).strip()
 
-        if cleaned:
-            mapping.append({
-                "bbox": w["bbox"],
-                "start": offset,
-                "end": offset + len(cleaned)
-            })
-            text_str += cleaned + " "
-            offset += len(cleaned) + 1
+            if cleaned:
+                mapping.append({
+                    "bbox": w["bbox"],
+                    "start": offset,
+                    "end": offset + len(cleaned)
+                })
+                text_str += cleaned + " "
+                offset += len(cleaned) + 1
 
-    # if cur_frame >= 840 and cur_frame <=880:
-    #     print("###############################################")
-    #     print(text_str)
+        # Step 4: Run spaCy
+        doc = nlp(text_str)
+        tokens_without_punct = [token for token in doc if not token.is_punct]
 
-    # Step 4: Run spaCy
-    doc = nlp(text_str)
-    tokens_without_punct = [token for token in doc if not token.is_punct]
+        # Step 5: Merge by spaCy sentence
+        merged_data = []
 
-    # Step 5: Merge by spaCy sentence
-    merged_data = []
+        for token in tokens_without_punct:
+            token_start = token.idx
+            token_end = token.idx + len(token.text)
 
-    for token in tokens_without_punct:
-        # if cur_frame >= 840 and cur_frame <=880:
-        #   print(token.text.strip())
-        # start position of the token in text_str
-        token_start = token.idx
-        token_end = token.idx + len(token.text)
+            token_boxes = [
+                m["bbox"] for m in mapping
+                if m["start"] >= token_start and m["end"] <= token_end
+            ]
 
-        token_boxes = [
-            m["bbox"] for m in mapping
-            if m["start"] >= token_start and m["end"] <= token_end
-        ]
+            if token_boxes:
+                merged_bbox = merge_bounding_boxes(token_boxes)
+                merged_data.append({
+                    "bbox": merged_bbox,
+                    "text": token.text.strip()
+                })
 
-        if token_boxes:
-            merged_bbox = merge_bounding_boxes(token_boxes)
-            merged_data.append({
-                "bbox": merged_bbox,
-                "text": token.text.strip()
-            })
+        #Result json
+        OCRjson.append({
+            "renderTime": renderTime + 1,
+            "data": merged_data
+        })
+    
+    #Delete data folder
+    shutil.rmtree("data/imgs")
+    os.remove("data/lesson.pdf")
 
     # Step 6: Save result for this frame
-    print(f"OCR: {image_path} done!")
-    if merged_data:
-        return merged_data
+    print("OCR done!")
+    if OCRjson:
+        return OCRjson
     return None
