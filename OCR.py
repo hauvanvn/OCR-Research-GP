@@ -5,7 +5,7 @@ import numpy as np
 import regex
 import os
 import urllib.request #Use for downloading files from URL
-from pdf2image import convert_from_path
+import fitz
 import shutil #Use to clear folder data
 
 import pandas as pd
@@ -42,15 +42,18 @@ def get_imgs(url):
 
     urllib.request.urlretrieve(url, pdf_path)
 
-    images = convert_from_path(
-        pdf_path,
-        dpi=300,
-        output_folder=img_dir,
-        fmt="jpeg",
-        paths_only=True
-    )
+    image_paths = []
 
-    return images
+    doc = fitz.open(pdf_path)
+    for i, page in enumerate(doc):
+        pix = page.get_pixmap(dpi=300)
+        img_path = os.path.join(img_dir, f"page_{i+1}.jpg")
+        pix.save(img_path)
+        image_paths.append(img_path)
+
+    doc.close()
+    return image_paths
+
 
 def sort_words_into_lines(results, y_tolerance=15):
     """
@@ -93,10 +96,6 @@ def ocr_image(image_path, audio_arr):
     imgs_path = get_imgs(image_path)
 
     reader = easyocr.Reader(['vi']) # this needs to run only once to load the model into memory
-
-    # Check file exists
-    if not os.path.exists(image_path):
-        return {"error": f"File not found: {image_path}"}
 
     OCRjson = []
     for image_path, renderTime in zip(imgs_path, audio_arr):

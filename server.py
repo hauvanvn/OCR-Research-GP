@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS 
 import tempfile
 from OCR import ocr_image
+import requests
 
 app = Flask(__name__)
 CORS(app)
@@ -12,21 +13,24 @@ def ocr_endpoint():
 
     data = request.get_json()
 
+    print("Package receive from BE: ",data)
+
     url = data.get("slide")
     audio_arr = data.get("durations", [])
-
+    
     callbackURL = data.get("callBackUrl")
 
     result = ocr_image(url, audio_arr)
-    ocr_json = jsonify(result)
+    # ocr_json = jsonify(result)
+    print(result)
 
     callbackJSON = {
         "type": "ocr",
         "status": "success",
-        "ocr_json": ocr_json
+        "ocr_json": result
     }
 
-    return request.post(callbackURL, callbackJSON)
+    return requests.post(callbackURL, json=callbackJSON)
 
 if __name__ == '__main__':
     app.run(port=5000, debug=True)
