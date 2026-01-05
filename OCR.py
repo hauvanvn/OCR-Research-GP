@@ -32,6 +32,13 @@ nlp.add_pipe('sentencizer')
 
 reader = easyocr.Reader(['vi']) # this needs to run only once to load the model into memory
 
+def load_vietnamese_stopwords(path="vietnamese-stopwords.txt"):
+    with open(path, encoding="utf-8") as f:
+        return set(line.strip() for line in f if line.strip())
+    
+EN_STOPWORDS = set(stopwords.words('english'))
+VI_STOPWORDS = load_vietnamese_stopwords()
+
 def get_imgs(url):
     download_dir = "data"
     img_dir = os.path.join(download_dir, "imgs")
@@ -91,6 +98,10 @@ def merge_bounding_boxes(boxes):
     max_y = max(b[1] + b[3] for b in boxes)
 
     return [min_x, min_y, max_x - min_x, max_y - min_y]
+
+def is_stopword(token_text: str) -> bool:
+    t = token_text.lower()
+    return t in EN_STOPWORDS or t in VI_STOPWORDS
 
 def ocr_image(image_path, audio_arr):
     imgs_path = get_imgs(image_path)
@@ -160,7 +171,7 @@ def ocr_image(image_path, audio_arr):
 
         # Step 4: Run spaCy
         doc = nlp(text_str)
-        tokens_without_punct = [token for token in doc if not token.is_punct]
+        tokens_without_punct = [token for token in doc if not token.is_punct and not is_stopword(token.text)]
 
         # Step 5: Merge by spaCy sentence
         merged_data = []
