@@ -26,11 +26,25 @@ punctuations = set(string.punctuation)
 
 import spacy
 from spacy.lang.vi import Vietnamese
+from spacy.lang.en import English
 
-nlp = Vietnamese()
-nlp.add_pipe('sentencizer')
+MODELS = {
+    "en": {"reader": None, "nlp": None},
+    "vi": {"reader": None, "nlp": None}
+}
 
-reader = easyocr.Reader(['vi']) # this needs to run only once to load the model into memory
+def get_resources(lang):
+    if MODELS[lang]["reader"] is None:
+        if lang == "vi":
+            MODELS["vi"]["reader"] = easyocr.Reader(['vi'])
+            MODELS["vi"]["nlp"] = Vietnamese()
+            MODELS["vi"]["nlp"].add_pipe('sentencizer')
+        else:
+            MODELS["en"]["reader"] = easyocr.Reader(['en'])
+            MODELS["en"]["nlp"] = English()
+            MODELS["en"]["nlp"].add_pipe('sentencizer')
+            
+    return MODELS[lang]["reader"], MODELS[lang]["nlp"]
 
 def load_vietnamese_stopwords(path="vietnamese-stopwords.txt"):
     with open(path, encoding="utf-8") as f:
@@ -103,12 +117,15 @@ def is_stopword(token_text: str) -> bool:
     t = token_text.lower()
     return t in EN_STOPWORDS or t in VI_STOPWORDS
 
-def ocr_image(image_path, audio_arr):
+def ocr_image(image_path, audio_arr, lang):
     imgs_path = get_imgs(image_path)
 
-    reader = easyocr.Reader(['vi']) # this needs to run only once to load the model into memory
+    reader, nlp = get_resources(lang)
 
-    OCRjson = []
+    OCRjson = {}
+    for i in range(1, len(audio_arr)):
+        audio_arr[i] += audio_arr[i - 1]
+        
     for image_path, renderTime in zip(imgs_path, audio_arr):
         # Try reading with cv2
         image = cv2.imread(image_path)
@@ -193,10 +210,8 @@ def ocr_image(image_path, audio_arr):
                 })
 
         #Result json
-        OCRjson.append({
-            "renderTime": renderTime + 1,
-            "data": merged_data
-        })
+        renderTime += 1
+        OCRjson[str(renderTime)] = merged_data
     
     #Delete data folder
     shutil.rmtree("data/imgs")

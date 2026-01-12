@@ -37,7 +37,7 @@ def ocr_endpoint():
         filename = f"{log_dir}/ocr_result.json"
 
         with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(callbackJSON, f, ensure_ascii=False, indent=4)
+            json.dump(result, f, ensure_ascii=False, indent=4)
         
         print(f"Callback saved to: {filename}")
     except Exception as e:
