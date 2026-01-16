@@ -11,3 +11,4 @@ spacy
 requests
 pyvi
 gunicorn
+langid
