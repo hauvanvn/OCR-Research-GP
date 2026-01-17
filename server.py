@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS 
 import tempfile
 import json
-from diff import ocr_image
+from OCR import ocr_image
 import requests
 
 app = Flask(__name__)
@@ -22,7 +22,6 @@ def ocr_endpoint():
     callbackURL = data.get("callBackUrl")
 
     result = ocr_image(url, audio_arr)
-    #Chỗ này đổi sang string cho phù hợp với kiểu dữ liệu string của ocr_json trong db
     result_string = json.dumps(result, separators=(',', ':'), ensure_ascii=False)
 
     callbackJSON = {
@@ -31,10 +30,10 @@ def ocr_endpoint():
         "ocr_json": result_string
     }
 
-    with open("result.json", "w") as f:
-        json.dump(result, f, ensure_ascii=False, separators=(',', ':'))
-    return callbackJSON
-    # return requests.post(callbackURL, json=callbackJSON)
+    # with open("result.json", "w") as f:
+    #     json.dump(result, f, ensure_ascii=False, separators=(',', ':'))
+    # return callbackJSON
+    return requests.post(callbackURL, json=callbackJSON)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

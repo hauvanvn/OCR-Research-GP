@@ -3,7 +3,7 @@ import json
 import time
 
 # --- Configuration ---
-BASE_URL = "http://localhost:5000/api/ocr"
+BASE_URL = "https://taren-counteractive-overtolerantly.ngrok-free.dev/api/ocr"
 
 # We use httpbin.org as the callback. 
 # It accepts the POST from your server and returns 200 OK + the data it received.
